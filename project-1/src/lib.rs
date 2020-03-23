@@ -1,12 +1,21 @@
+extern crate failure;
+
+#[macro_use] extern crate failure_derive;
+
 use std::collections::HashMap;
 use std::path::Path;
-use std::error;
 
 pub struct KvStore {
     map: HashMap<String, String>,
 }
 
-pub type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
+#[derive(Debug, Fail)]
+pub enum Error {
+  #[fail(display = "test")]
+  Test {}
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 impl KvStore {
     pub fn new() -> KvStore {

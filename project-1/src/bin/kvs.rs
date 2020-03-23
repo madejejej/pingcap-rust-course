@@ -1,4 +1,5 @@
 use structopt::StructOpt;
+use kvs::{self, Result};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "kvstore", about = "Simple key-value store")]
@@ -8,7 +9,7 @@ enum Opt {
     Rm { key: String },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     match opt {
