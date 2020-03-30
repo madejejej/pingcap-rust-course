@@ -1,5 +1,6 @@
-use structopt::StructOpt;
 use kvs::{self, Result};
+use std::path::Path;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "kvstore", about = "Simple key-value store")]
@@ -11,11 +12,24 @@ enum Opt {
 
 fn main() -> Result<()> {
     let opt = Opt::from_args();
+    let mut kvstore = kvs::KvStore::open(Path::new("."))?;
 
     match opt {
-        Opt::Get { key } => panic!("unimplemented"),
-        Opt::Set { key, value } => panic!("unimplemented"),
-        Opt::Rm { key } => panic!("unimplemented"),
-        _ => panic!(),
-    }
+        Opt::Get { key } => {
+            let value = kvstore.get(key)?;
+
+            match value {
+                Some(val) => println!("{}", val),
+                None => println!("key not found"),
+            };
+        }
+        Opt::Set { key, value } => {
+            kvstore.set(key, value)?;
+        }
+        Opt::Rm { key } => {
+            kvstore.remove(key)?;
+        }
+    };
+
+    Ok(())
 }
