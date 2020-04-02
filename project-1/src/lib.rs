@@ -1,9 +1,8 @@
-extern crate failure;
-
 #[macro_use]
-extern crate failure_derive;
+extern crate log;
+extern crate env_logger;
 
-use failure::Error;
+use failure::Fail;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
@@ -17,12 +16,13 @@ pub struct KvStore {
     reader: BufReader<File>,
 }
 
+#[derive(Debug)]
 struct CommandPosition {
     offset: u64,
     length: u64,
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, KvError>;
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Operation {
@@ -32,8 +32,24 @@ enum Operation {
 
 #[derive(Debug, Fail)]
 pub enum KvError {
-    #[fail(display = "test")]
-    Test {},
+    #[fail(display = "{}", _0)]
+    Io(#[cause] std::io::Error),
+    #[fail(display = "{}", _0)]
+    Serialization(#[cause] serde_json::Error),
+    #[fail(display = "Key not found {}", key)]
+    KeyNotFound { key: String },
+}
+
+impl From<std::io::Error> for KvError {
+    fn from(err: std::io::Error) -> KvError {
+        KvError::Io(err)
+    }
+}
+
+impl From<serde_json::Error> for KvError {
+    fn from(err: serde_json::Error) -> KvError {
+        KvError::Serialization(err)
+    }
 }
 
 impl KvStore {
@@ -72,8 +88,17 @@ impl KvStore {
     }
 
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.map.remove(&key);
-        Ok(())
+        if self.map.contains_key(&key) {
+            let op = Operation::Remove { key: key.clone() };
+
+            let bytes = serde_json::to_vec(&op)?;
+            self.writer.write(&bytes)?;
+            self.writer.flush()?;
+            self.map.remove(&key).ok_or(KvError::KeyNotFound { key })?;
+            Ok(())
+        } else {
+            Err(KvError::KeyNotFound { key: key })
+        }
     }
 
     pub fn open(path: &Path) -> Result<KvStore> {
@@ -86,7 +111,8 @@ impl KvStore {
 
         let read_file = File::open(path)?;
 
-        let writer = BufWriter::with_capacity(512 * 1024, write_file);
+        let mut writer = BufWriter::with_capacity(512 * 1024, write_file);
+        writer.seek(SeekFrom::End(0))?;
         let mut reader = BufReader::with_capacity(512 * 1024, read_file);
         let mut map: HashMap<String, CommandPosition> = HashMap::new();
         let mut pos: u64 = reader.seek(SeekFrom::Start(0))?;
@@ -109,6 +135,8 @@ impl KvStore {
 
             pos = new_pos;
         }
+
+        debug!("Opened file: {:?}", map);
 
         let store = KvStore {
             map,

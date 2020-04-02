@@ -20,15 +20,19 @@ fn main() -> Result<()> {
 
             match value {
                 Some(val) => println!("{}", val),
-                None => println!("key not found"),
+                None => println!("Key not found"),
             };
         }
         Opt::Set { key, value } => {
             kvstore.set(key, value)?;
         }
-        Opt::Rm { key } => {
-            kvstore.remove(key)?;
-        }
+        Opt::Rm { key } => match kvstore.remove(key) {
+            Ok(_) => (),
+            Err(_) => {
+                println!("Key not found");
+                panic!();
+            }
+        },
     };
 
     Ok(())
