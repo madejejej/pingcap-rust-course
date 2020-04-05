@@ -9,13 +9,15 @@ use std::path::Path;
 pub struct KvStore {
     map: HashMap<String, CommandPosition>,
     writer: BufWriter<File>,
-    reader: BufReader<File>,
+    current_generation: usize,
+    readers: Vec<BufReader<File>>,
 }
 
 #[derive(Debug)]
 struct CommandPosition {
     offset: u64,
     length: u64,
+    generation: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,10 +29,12 @@ enum Operation {
 impl KvStore {
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
         match self.map.get(&key) {
-            Some(CommandPosition { offset, length }) => {
-                self.reader.seek(SeekFrom::Start(*offset))?;
+            Some(CommandPosition { offset, length, generation }) => {
+                let reader = &mut self.readers[*generation - 1];
+
+                reader.seek(SeekFrom::Start(*offset))?;
                 let mut buffer = vec![0; *length as usize];
-                self.reader.read_exact(&mut buffer)?;
+                reader.read_exact(&mut buffer)?;
                 let operation: Operation = serde_json::from_slice(&buffer)?;
 
                 match operation {
@@ -51,11 +55,12 @@ impl KvStore {
 
         let length = bytes.len() as u64;
         let offset = self.writer.seek(SeekFrom::Current(0))?;
+        let generation = self.current_generation;
 
         // TODO: handle partial writes and write errors
         self.writer.write(&bytes)?;
         self.writer.flush()?;
-        self.map.insert(key, CommandPosition { offset, length });
+        self.map.insert(key, CommandPosition { offset, length, generation });
         Ok(())
     }
 
@@ -91,6 +96,8 @@ impl KvStore {
         let mut stream =
             serde_json::Deserializer::from_reader(&mut reader).into_iter::<Operation>();
 
+        let current_generation = 1;
+
         while let Some(operation) = stream.next() {
             let new_pos = stream.byte_offset() as u64;
 
@@ -100,6 +107,7 @@ impl KvStore {
                     CommandPosition {
                         offset: pos,
                         length: new_pos - pos,
+                        generation: current_generation,
                     },
                 ),
                 Operation::Remove { key } => map.remove(&key),
@@ -108,10 +116,13 @@ impl KvStore {
             pos = new_pos;
         }
 
+        let readers = vec![reader];
+
         let store = KvStore {
             map,
             writer,
-            reader,
+            current_generation,
+            readers,
         };
 
         Ok(store)
